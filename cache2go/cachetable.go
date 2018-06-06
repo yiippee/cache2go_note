@@ -12,6 +12,7 @@ import (
 	"sort"
 	"sync"
 	"time"
+	"fmt"
 )
 
 // CacheTable is a table within the cache
@@ -35,11 +36,32 @@ type CacheTable struct {
 	// 如果缓存不存在则执行这个加载函数，从比如数据库等存储数据的地方加载进缓存
 	loadData func(key interface{}, args ...interface{}) *CacheItem
 	// Callback method triggered when adding a new item to the cache.
+	// 当新增一个缓存时的回调函数
 	addedItem func(item *CacheItem)
 	// Callback method triggered before deleting an item from the cache.
+	// 删除一个cache时触发的回调函数
 	aboutToDeleteItem func(item *CacheItem)
+
+	// 新增或删除元素的队列，主要用于异步更新mysql等最终的数据存储的地方
+	addChan chan *CacheItem
+	delChan chan *CacheItem
 }
 
+func (table *CacheTable) runAddFunc() {
+	for {
+		item := <- table.addChan
+		// 可更新数据库等
+		fmt.Println(item)
+	}
+}
+
+func (table *CacheTable) runDelFunc() {
+	for {
+		item := <- table.delChan
+		// 可更新数据库等
+		fmt.Println(item)
+	}
+}
 // Count returns how many items are currently stored in the cache.
 func (table *CacheTable) Count() int {
 	table.RLock()
@@ -153,6 +175,10 @@ func (table *CacheTable) addInternal(item *CacheItem) {
 		addedItem(item)
 	}
 
+	if table.addChan != nil {
+		// TODO 超时处理
+		table.addChan <- item
+	}
 	// If we haven't set up any expiration check timer or found a more imminent item.
 	if item.lifeSpan > 0 && (expDur == 0 || item.lifeSpan < expDur) {
 		// 有新元素添加进来了，定时删除过期元素的定时器最短的间隔要更新
@@ -190,6 +216,10 @@ func (table *CacheTable) deleteInternal(key interface{}) (*CacheItem, error) {
 		aboutToDeleteItem(r)
 	}
 
+	if table.delChan != nil {
+		// TODO chan满的时候，超时处理
+		table.delChan <- r
+	}
 	r.RLock()
 	defer r.RUnlock()
 	if r.aboutToExpire != nil {
@@ -248,12 +278,14 @@ func (table *CacheTable) Value(key interface{}, args ...interface{}) (*CacheItem
 
 	if ok {
 		// Update access counter and timestamp.
+		// 更新时间戳，保活
 		r.KeepAlive()
 		return r, nil
 	}
 
 	// Item doesn't exist in cache. Try and fetch it with a data-loader.
 	if loadData != nil {
+		// 如果缓存未命中，则从loadData函数中获取，并加入到缓存中
 		item := loadData(key, args...)
 		if item != nil {
 			table.Add(key, item.lifeSpan, item.data)
