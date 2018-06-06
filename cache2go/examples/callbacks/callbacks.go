@@ -7,6 +7,11 @@ import (
 	"github.com/muesli/cache2go"
 )
 
+type myStruct struct {
+	id   int
+	name string
+}
+
 func main() {
 	cache := cache2go.Cache("myCache", 100, 100)
 
@@ -62,4 +67,16 @@ func main() {
 	})
 
 	time.Sleep(5 * time.Second)
+
+	// 新增结构体值类型
+	cache.Add("key_struct", 0, &myStruct{
+		123,
+		"lizhanbin",
+	})
+
+	fmt.Println("------------------------")
+	v, err := cache.Value("key_struct")
+	if err == nil {
+		fmt.Println(v.Key(), v.Data())
+	}
 }
