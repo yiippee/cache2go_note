@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	cache := cache2go.Cache("myCache", 100, 100 )
+	cache := cache2go.Cache("myCache", 100, 100)
 
 	// The data loader gets called automatically whenever something
 	// tries to retrieve a non-existing key from the cache.
@@ -22,7 +22,10 @@ func main() {
 		item := cache2go.NewCacheItem(key, 0, val)
 		return item
 	})
-
+	item, err := cache.Value("missGetCache")
+	if err == nil {
+		fmt.Println("load item:", item)
+	}
 	// This callback will be triggered every time a new item
 	// gets added to the cache.
 	cache.SetAddedItemCallback(func(entry *cache2go.CacheItem) {

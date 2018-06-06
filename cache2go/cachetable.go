@@ -8,11 +8,11 @@
 package cache2go
 
 import (
+	"fmt"
 	"log"
 	"sort"
 	"sync"
 	"time"
-	"fmt"
 )
 
 // CacheTable is a table within the cache
@@ -49,19 +49,20 @@ type CacheTable struct {
 
 func (table *CacheTable) runAddFunc() {
 	for {
-		item := <- table.addChan
+		item := <-table.addChan
 		// 可更新数据库等
-		fmt.Println(item)
+		fmt.Println("write back add item: ", item)
 	}
 }
 
 func (table *CacheTable) runDelFunc() {
 	for {
-		item := <- table.delChan
+		item := <-table.delChan
 		// 可更新数据库等
-		fmt.Println(item)
+		fmt.Println("write back del item: ",item)
 	}
 }
+
 // Count returns how many items are currently stored in the cache.
 func (table *CacheTable) Count() int {
 	table.RLock()
@@ -163,11 +164,13 @@ func (table *CacheTable) addInternal(item *CacheItem) {
 	// Careful: do not run this method unless the table-mutex is locked!
 	// It will unlock it for the caller before running the callbacks and checks
 	table.log("Adding item with key", item.key, "and lifespan of", item.lifeSpan, "to table", table.name)
+	// 不管value值是不是相等，都一律覆盖。按道理需要考虑如果值存在就不需要写了。但是感觉没必要，统一覆盖也行
 	table.items[item.key] = item
 
 	// Cache values so we don't keep blocking the mutex.
 	expDur := table.cleanupInterval
 	addedItem := table.addedItem
+	addChan := table.addChan
 	table.Unlock()
 
 	// Trigger callback after adding an item to cache.
@@ -175,15 +178,49 @@ func (table *CacheTable) addInternal(item *CacheItem) {
 		addedItem(item)
 	}
 
-	if table.addChan != nil {
-		// TODO 超时处理
-		table.addChan <- item
+	if addChan != nil {
+		// TODO 超时处理.
+		addChan <- item
 	}
 	// If we haven't set up any expiration check timer or found a more imminent item.
 	if item.lifeSpan > 0 && (expDur == 0 || item.lifeSpan < expDur) {
 		// 有新元素添加进来了，定时删除过期元素的定时器最短的间隔要更新
 		table.expirationCheck()
 	}
+}
+
+// 加载不需要写回数据库了
+func (table *CacheTable) loadInternal(item *CacheItem) {
+	// Careful: do not run this method unless the table-mutex is locked!
+	// It will unlock it for the caller before running the callbacks and checks
+	table.log("loading item with key", item.key, "and lifespan of", item.lifeSpan, "to table", table.name)
+	table.items[item.key] = item
+
+	// Cache values so we don't keep blocking the mutex.
+	expDur := table.cleanupInterval
+	addedItem := table.addedItem
+	table.Unlock()
+
+	// Trigger callback after loading an item to cache.
+	if addedItem != nil {
+		addedItem(item)
+	}
+	// If we haven't set up any expiration check timer or found a more imminent item.
+	if item.lifeSpan > 0 && (expDur == 0 || item.lifeSpan < expDur) {
+		// 有新元素添加进来了，定时删除过期元素的定时器最短的间隔要更新
+		table.expirationCheck()
+	}
+}
+
+// 从数据库加载进缓存，与Add是不一样的
+func (table *CacheTable) load(key interface{}, lifeSpan time.Duration, data interface{}) *CacheItem {
+	item := NewCacheItem(key, lifeSpan, data)
+
+	// Add item to cache.
+	table.Lock()
+	table.loadInternal(item)
+
+	return item
 }
 
 // Add adds a key/value pair to the cache.
@@ -209,6 +246,7 @@ func (table *CacheTable) deleteInternal(key interface{}) (*CacheItem, error) {
 
 	// Cache value so we don't keep blocking the mutex.
 	aboutToDeleteItem := table.aboutToDeleteItem
+	delChan := table.delChan
 	table.Unlock()
 
 	// Trigger callbacks before deleting an item from cache.
@@ -216,9 +254,9 @@ func (table *CacheTable) deleteInternal(key interface{}) (*CacheItem, error) {
 		aboutToDeleteItem(r)
 	}
 
-	if table.delChan != nil {
+	if delChan != nil {
 		// TODO chan满的时候，超时处理
-		table.delChan <- r
+		delChan <- r
 	}
 	r.RLock()
 	defer r.RUnlock()
@@ -288,7 +326,8 @@ func (table *CacheTable) Value(key interface{}, args ...interface{}) (*CacheItem
 		// 如果缓存未命中，则从loadData函数中获取，并加入到缓存中
 		item := loadData(key, args...)
 		if item != nil {
-			table.Add(key, item.lifeSpan, item.data)
+			// 加载进缓存
+			table.load(key, item.lifeSpan, item.data)
 			return item, nil
 		}
 
