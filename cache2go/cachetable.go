@@ -48,6 +48,8 @@ type CacheTable struct {
 }
 
 func (table *CacheTable) runAddFunc() {
+	// 可以按照数据类型来划分chan类型，这样每一种chan只处理某一种类型，
+	// 效率应该会高一点
 	for {
 		item := <-table.addChan
 		// 可更新数据库等
@@ -212,7 +214,7 @@ func (table *CacheTable) loadInternal(item *CacheItem) {
 	}
 }
 
-// 从数据库加载进缓存，与Add是不一样的
+// 从数据库加载进缓存，与Add有一点不一样，就是不需要再次写回数据库了
 func (table *CacheTable) load(key interface{}, lifeSpan time.Duration, data interface{}) *CacheItem {
 	item := NewCacheItem(key, lifeSpan, data)
 

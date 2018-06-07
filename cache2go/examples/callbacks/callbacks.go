@@ -66,8 +66,6 @@ func main() {
 		fmt.Println("About to expire:", key.(string))
 	})
 
-	time.Sleep(5 * time.Second)
-
 	// 新增结构体值类型
 	cache.Add("key_struct", 0, &myStruct{
 		123,
@@ -79,4 +77,6 @@ func main() {
 	if err == nil {
 		fmt.Println(v.Key(), v.Data())
 	}
+
+	time.Sleep(5 * time.Second)
 }
