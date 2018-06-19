@@ -61,7 +61,7 @@ func (table *CacheTable) runDelFunc() {
 	for {
 		item := <-table.delChan
 		// 可更新数据库等
-		fmt.Println("write back del item: ",item)
+		fmt.Println("write back del item: ", item)
 	}
 }
 
@@ -257,8 +257,21 @@ func (table *CacheTable) deleteInternal(key interface{}) (*CacheItem, error) {
 	}
 
 	if delChan != nil {
-		// TODO chan满的时候，超时处理
-		delChan <- r
+		// TODO chan满的时候，超时处理,并提示失败
+		for {
+			// 判断chan的长度是否可以追加新数据，如果可以则添加，否则休眠1s中
+			if len(delChan) < 3 {
+				break
+			} else {
+				time.Sleep(1*time.Second)
+			}
+		}
+		select {
+		case delChan <- r:
+			fmt.Println("ok")
+		case <-time.After(time.Second * 2):
+			fmt.Println("time out")
+		}
 	}
 	r.RLock()
 	defer r.RUnlock()

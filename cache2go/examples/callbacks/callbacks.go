@@ -79,4 +79,9 @@ func main() {
 	}
 
 	time.Sleep(5 * time.Second)
+
+	//c := make(chan os.Signal, 1)
+	//signal.Notify(c, os.Interrupt, os.Kill)
+	//sig := <-c
+	//fmt.Println("closing down (signal: %v)", sig)
 }
